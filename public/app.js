@@ -1,0 +1,162 @@
+'use strict';
+const S=TradeSchema,$=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sections={overview:['◫','工作總覽'],products:['◇','產品與 HS Code'],markets:['▥','進口趨勢'],companies:['▦','公司與聯絡人'],drafts:['✎','開發信與 Checklist'],activities:['◷','往來摘要與跟進'],imports:['⇄','CSV 匯入與備份']};
+let state=S.empty(),route='overview',search='',stageFilter='',companyFilter='',marketProduct='',marketYear='',baseYear='',pending=null,busy=false;
+const today=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
+const uid=kind=>kind.slice(0,3)+'_'+crypto.randomUUID().slice(0,8),clone=v=>JSON.parse(JSON.stringify(v));
+const company=id=>state.companies.find(x=>x.id===id),product=id=>state.products.find(x=>x.id===id);
+const fmt=v=>Number(v).toLocaleString('en-US',{maximumFractionDigits:2}),money=v=>'$'+fmt(v);
+const activeCompany=c=>!['已成交','暫停'].includes(c.stage);
+const due=()=>state.companies.filter(c=>c.next_followup&&c.next_followup<=today()&&activeCompany(c)).sort((a,b)=>a.next_followup.localeCompare(b.next_followup));
+function button(label,action,id='',primary=false){return `<button type="button" class="btn ${primary?'primary':''}" data-action="${action}" data-id="${esc(id)}">${label}</button>`;}
+function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
+function ask(text){return new Promise(resolve=>{const box=$('#confirmation');$('#confirm-text').textContent=text;const finish=value=>{box.close();$('#confirm-yes').onclick=null;$('#confirm-no').onclick=null;box.oncancel=null;resolve(value);};$('#confirm-yes').onclick=()=>finish(true);$('#confirm-no').onclick=()=>finish(false);box.oncancel=e=>{e.preventDefault();finish(false);};box.showModal();});}
+function table(heads,rows){return `<div class="table-wrap"><table><thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;}
+function link(url,label='查看來源'){return url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`:'<span class="muted">未填</span>';}
+function empty(text,description,action){return `<div class="empty"><strong>${text}</strong>${description}${action?'<br>'+action:''}</div>`;}
+function heading(title,desc,actions=''){return `<div class="page-heading"><div><div class="eyebrow">TRADE DEVELOPMENT</div><h1>${title}</h1><p class="subtitle">${desc}</p></div><div class="actions">${actions}</div></div>`;}
+function panel(title,body,extra=''){return `<section class="panel"><div class="panel-head"><h2>${title}</h2>${extra}</div>${body}</section>`;}
+function options(rows,value,label){return rows.map(r=>`<option value="${esc(r.id)}" ${r.id===value?'selected':''}>${esc(label(r))}</option>`).join('');}
+function recordActions(kind,id){return `<div class="actions"><button class="btn small" data-action="edit" data-kind="${kind}" data-id="${esc(id)}">編輯</button><button class="btn small danger" data-action="delete" data-kind="${kind}" data-id="${esc(id)}">刪除</button></div>`;}
+function companyRows(rows){return rows.map(c=>`<tr><td><strong>${esc(c.name)}</strong><span class="sub mono">${esc(c.id)}</span>${link(c.website,'官網')}</td><td>${esc(c.country)}<span class="sub">${esc(product(c.product_id)?.name||c.product_id)}</span></td><td>${esc(c.contact_name||'未填聯絡人')}<span class="sub">${esc(c.contact_role)}</span><span class="sub">${esc(c.email)}</span></td><td><span class="badge">${esc(c.stage)}</span></td><td>${c.next_followup?`<span class="${c.next_followup<today()&&activeCompany(c)?'negative':''}">${esc(c.next_followup)}</span>`:'—'}</td><td>${recordActions('companies',c.id)}<div class="actions" style="margin-top:7px">${button('寫開發信','generate',c.id)}${button('往來紀錄','company-history',c.id)}</div></td></tr>`);}
+async function commit(next,message){
+  if(busy)throw Error('正在儲存，請稍候。');const checked=S.validate(next);busy=true;$('#save-status').textContent='正在儲存…';
+  try{const r=await fetch('/api/state',{method:'PUT',headers:{'Content-Type':'application/json','X-Tradedesk-Token':APP_TOKEN},body:JSON.stringify(checked)});const data=await r.json();if(!r.ok)throw Error(data.error||'儲存失敗');state=data;render();if(message)toast(message);return true;}
+  catch(e){$('#save-status').textContent='儲存未完成';throw e;}finally{busy=false;}
+}
+function render(){
+  $('#nav').innerHTML=Object.entries(sections).map(([key,[icon,label]])=>`<a href="#${key}" class="${route===key?'active':''}"><span class="nav-icon">${icon}</span>${label}</a>`).join('');
+  $('#breadcrumb').textContent=sections[route][1];$('#save-status').textContent='✓ 已保存在本機 · 版本 '+state.revision;
+  const pages={overview:renderOverview,products:renderProducts,markets:renderMarkets,companies:renderCompanies,drafts:renderDrafts,activities:renderActivities,imports:renderImports};$('#app').innerHTML=pages[route]();
+}
+function renderOverview(){
+  const pipeline=[['products','01','產品與 HS Code'],['markets','02','比較進口趨勢'],['companies','03','整理目標公司'],['companies','04','公開聯絡方式'],['companies','05','管理商機'],['drafts','06','開發信草稿'],['activities','07','摘要與跟進']];
+  const dueRows=due(),replied=state.companies.filter(c=>['已回覆','洽談中','已成交'].includes(c.stage)).length;
+  return heading('每個機會，都有下一步。','手動整理市場、客戶與往來資訊，讓業務開發有跡可循。',button('新增目標公司','add-company','',true))+`<div class="steps">${pipeline.map(([key,num,label])=>`<a class="step" href="#${key}"><b>STEP ${num}</b>${label}</a>`).join('')}</div><div class="stats">${[[state.products.length,'產品','以 HS Code 連結市場資料'],[state.companies.length,'目標公司','集中管理主要聯絡人'],[replied,'已回覆／洽談／成交','掌握已有進展的商機'],[dueRows.length,'待跟進','到期或逾期的未結案公司']].map(([v,l,f],i)=>`<div class="stat ${i===3?'attention':''}"><div class="label">${l}</div><div class="value">${v}</div><div class="foot">${f}</div></div>`).join('')}</div>`+
+    panel('優先跟進',dueRows.length?table(['公司','市場／產品','聯絡人','階段','跟進日期','操作'],companyRows(dueRows.slice(0,8))):empty('目前沒有到期待辦','新增公司時設定下次跟進日期，待辦就會出現在這裡。'),'<span class="count">'+today()+'</span>')+
+    `<div class="grid2">${panel('商機分布',`<div class="panel-body">${S.choices.stage.map(s=>{const count=state.companies.filter(c=>c.stage===s).length;return `<div style="display:flex;align-items:center;gap:15px;margin-bottom:18px"><span style="width:65px">${s}</span><div class="bar-track" style="flex:1;margin:0"><div class="bar-fill" style="width:${state.companies.length?count/state.companies.length*100:0}%"></div></div><b>${count}</b></div>`;}).join('')}</div>`)}${panel('開始使用',`<div class="panel-body"><h3>先建立一個產品，再加入市場與公司。</h3><p class="subtitle">已有 Excel 名單？下載 CSV 範本並填寫，依序匯入產品、市場及公司。</p><ul class="help-list"><li>全部資料由你輸入，不連接搜尋服務。</li><li>開發信使用可編輯範本，不會自動寄出。</li><li>定期下載完整 JSON 備份，便於換機或還原。</li></ul>${button('下載範本／匯入資料','go-imports')}</div>`)}</div>`;
+}
+function renderProducts(){return heading('產品與 HS Code','維護你要開發的產品、賣點與交易條件。',button('新增產品','add-product','',true))+panel('產品清單',state.products.length?table(['產品','HS Code','優勢／說明','MOQ／交期／條件','操作'],state.products.map(p=>`<tr><td><strong>${esc(p.name)}</strong><span class="sub mono">${esc(p.id)}</span></td><td class="mono">${esc(p.hs_code)}</td><td>${esc(p.advantage)}<span class="sub">${esc(p.description)}</span></td><td>${esc(p.moq||'未填')}<span class="sub">${esc(p.lead_time)} · ${esc(p.incoterm)}</span></td><td>${recordActions('products',p.id)}</td></tr>`)):empty('建立第一個產品','HS Code 使用文字格式，可保留前導零。',button('新增產品','add-product','',true)));}
+function renderMarkets(){
+  if(!state.products.some(p=>p.id===marketProduct))marketProduct=state.products[0]?.id||'';
+  const rows=state.markets.filter(m=>m.product_id===marketProduct),years=[...new Set(rows.map(m=>m.year))].sort((a,b)=>b-a);
+  if(!years.includes(+marketYear))marketYear=String(years[0]||new Date().getFullYear());if(!baseYear||+baseYear>=+marketYear)baseYear=String(+marketYear-1);
+  const current=rows.filter(m=>m.year===+marketYear).sort((a,b)=>b.import_usd-a.import_usd),max=Math.max(1,...current.map(m=>m.import_usd));
+  const compare=current.map(m=>{const prev=rows.find(x=>x.country===m.country&&x.year===+baseYear);const pct=prev&&prev.import_usd>0?(m.import_usd-prev.import_usd)/prev.import_usd*100:null;return `<tr><td><strong>${esc(m.country)}</strong></td><td>${money(m.import_usd)}<div class="bar-track"><div class="bar-fill" style="width:${m.import_usd/max*100}%"></div></div></td><td>${prev?money(prev.import_usd):'無資料'}</td><td>${pct!==null?`<span class="${pct>=0?'positive':'negative'}">${pct>=0?'+':''}${pct.toFixed(1)}%</span>`:prev?'基期為 0，無法計算':'—'}</td><td>${link(m.source_url)}</td></tr>`;});
+  return heading('把市場機會放在一起比較。','輸入年度進口額，以同一產品比較各國市場與成長率。',button('新增進口數據','add-market','',true))+`<div class="notice">比較以你輸入的數據為準。請統一使用 USD、相同 HS 分類版本及一致的國家名稱；缺少基期資料時不推估成長率。</div><div class="filters"><label>產品<select id="market-product">${options(state.products,marketProduct,p=>p.name+' · '+p.hs_code)}</select></label><label>比較年度<select id="market-year">${(years.length?years:[+marketYear]).map(y=>`<option ${y===+marketYear?'selected':''}>${y}</option>`).join('')}</select></label><label>基期年度<input id="base-year" type="number" min="1900" max="2100" value="${esc(baseYear)}" style="display:block;width:120px;margin-top:5px"></label></div>`+panel('市場比較 · '+esc(marketYear)+' vs '+esc(baseYear),compare.length?table(['國家／市場','比較年度進口額 USD','基期進口額 USD','變化率','來源'],compare):empty('這個年度還沒有數據','手動加入至少一筆進口數據，或匯入市場 CSV。'))+panel('原始年度紀錄',rows.length?table(['國家','年度','進口額 USD','備註','操作'],[...rows].sort((a,b)=>b.year-a.year||a.country.localeCompare(b.country)).map(m=>`<tr><td>${esc(m.country)}</td><td>${m.year}</td><td>${money(m.import_usd)}</td><td>${esc(m.notes)}</td><td>${recordActions('markets',m.id)}</td></tr>`)):empty('尚無年度紀錄','先建立產品，再輸入各國數據。'));}
+function renderCompanies(){
+  const rows=state.companies.filter(c=>(!stageFilter||c.stage===stageFilter)&&[c.name,c.country,c.contact_name,c.email,c.id].join(' ').toLowerCase().includes(search.toLowerCase()));
+  return heading('目標公司與主要聯絡人','把來源、商機階段與跟進日期集中在同一份名單。',button('新增公司','add-company','',true))+`<div class="filters"><input id="company-search" placeholder="搜尋公司、國家、聯絡人或 Email" aria-label="搜尋公司" value="${esc(search)}"><label>業務階段<select id="stage-filter"><option value="">全部階段</option>${S.choices.stage.map(s=>`<option ${stageFilter===s?'selected':''}>${s}</option>`).join('')}</select></label><span class="count">${rows.length} 家公司</span></div>`+panel('開發名單',rows.length?table(['公司','市場／產品','聯絡人','階段','下次跟進','操作'],companyRows(rows)):empty('沒有符合的公司','每家公司先記錄一位主要聯絡人；資料來源網址可留存查核。'));}
+function checks(d){const list=S.fields.drafts.filter(x=>x[2]==='check');return {total:list.length,done:list.filter(x=>d[x[0]]==='是').length};}
+function renderDrafts(){
+  const rows=state.drafts.filter(d=>!companyFilter||d.company_id===companyFilter);
+  return heading('開發信草稿，寄出前再確認。','使用中英文範本起草，逐項檢查，再由你手動寄出。',button('建立開發信','generate','',true))+`<div class="notice">Checklist：對象與職務 → 產品適配 → 具體利益 → 規格佐證 → 行動邀請 → 寄件資訊 → 語言與附件。勾選完成不代表已寄出。</div><div class="filters"><label>公司<select id="draft-company"><option value="">全部公司</option>${options(state.companies,companyFilter,c=>c.name)}</select></label></div><div class="draft-list">${rows.length?rows.map(d=>{const c=company(d.company_id),ch=checks(d);return `<article class="draft-card"><div class="draft-top"><div><strong>${esc(c?.name)}</strong><span class="sub muted"> · ${d.language==='en'?'English':'中文'} · ${esc(d.created_at)}</span></div><div><span class="badge ${ch.done<ch.total?'warn':''}">Checklist ${ch.done}/${ch.total}</span> <span class="badge gray">${esc(d.status)}</span></div></div><h3>${esc(d.subject)}</h3><pre>${esc(d.body)}</pre><div class="actions">${recordActions('drafts',d.id)}${button('複製主旨與內文','copy-draft',d.id)}${d.status==='草稿'?button('記錄已手動寄出','mark-sent',d.id):''}</div></article>`;}).join(''):empty('先選一家公司，寫第一封開發信。','範本會帶入產品資料；寄件人、佐證與語氣請人工確認。',button('建立草稿','generate','',true))}</div>`;
+}
+function renderActivities(){
+  const rows=state.activities.filter(a=>!companyFilter||a.company_id===companyFilter).sort((a,b)=>b.date.localeCompare(a.date));
+  return heading('保留往來重點，安排下一次行動。','信件原文、摘要、客戶需求與我方承諾，集中記錄。',button('新增往來紀錄','add-activity','',true))+`<div class="filters"><label>公司<select id="activity-company"><option value="">全部公司</option>${options(state.companies,companyFilter,c=>c.name)}</select></label>${companyFilter?button('編輯公司／跟進日期','edit-company',companyFilter):''}</div>`+
+    panel('往來摘要與紀錄',rows.length?`<div class="panel-body">${rows.map(a=>`<article class="activity"><div class="date">${esc(a.date)}<br><span class="badge">${esc(a.type)}</span></div><div style="flex:1;min-width:0"><h3>${esc(company(a.company_id)?.name)}${a.subject?' · '+esc(a.subject):''}</h3><p><strong>摘要</strong><br>${esc(a.summary)}</p>${[['requests','客戶需求／問題'],['commitments','我方承諾'],['action_items','下一步／待辦']].filter(([k])=>a[k]).map(([k,label])=>`<p><strong>${label}</strong><br>${esc(a[k])}</p>`).join('')}${a.next_followup?`<p class="positive">當次建議跟進：${esc(a.next_followup)}</p>`:''}${a.reply||a.body?`<details><summary class="muted">查看信件原文</summary>${a.reply?`<p><strong>對方信件</strong><br>${esc(a.reply)}</p>`:''}${a.body?`<p><strong>我方信件</strong><br>${esc(a.body)}</p>`:''}</details>`:''}<div style="margin-top:12px">${recordActions('activities',a.id)}</div></div></article>`).join('')}</div>`:empty('還沒有往來紀錄','貼上信件原文，手動整理摘要，或使用原文摘錄作為起點。'));
+}
+const descriptions={products:'產品資料、HS Code、優勢與交易條件。',markets:'每筆為一個產品／國家／年度的 USD 進口額。',companies:'每筆為一家公司與一位主要聯絡人。',drafts:'開發信草稿與七項 Checklist，使用「是／否」。',activities:'信件原文、往來摘要、需求、承諾與待辦。'};
+function renderImports(){return heading('資料進得來，也帶得走。','CSV 供 Excel 填寫；完整 JSON 備份保留所有資料與關聯。')+`<div class="notice">匯入順序：產品 → 市場／公司 → 草稿／往來紀錄。CSV 為 UTF-8，首列欄名請勿修改；HS Code 欄在 Excel 中設定為文字，日期使用 YYYY-MM-DD。</div><div class="import-layout">${panel('制式 CSV 範本與匯出',`<div class="panel-body">${Object.keys(S.fields).map(k=>`<div class="template-card" style="margin-bottom:12px"><h3>${sections[k]?.[1]||'往來紀錄'}</h3><p>${descriptions[k]}</p><div class="actions">${button('下載空白範本','template',k)}${button('下載示例','example',k)}${button('匯出目前資料','export-csv',k)}</div></div>`).join('')}</div>`)}${panel('CSV 匯入',`<div class="panel-body"><label class="field"><span>資料種類</span><select id="import-kind">${Object.keys(S.fields).map(k=>`<option value="${k}">${sections[k]?.[1]||k}</option>`).join('')}</select></label><label class="field" style="margin-top:16px"><span>遇到相同 ID</span><select id="import-mode"><option value="append">只新增（重複 ID 將拒絕）</option><option value="upsert">依 ID 新增或更新（整筆覆寫）</option></select></label><label class="field" style="margin-top:16px"><span>選擇 CSV 檔案</span><input class="file-input" id="csv-file" type="file" accept=".csv,text/csv"></label><p class="hint">只接受制式欄名。空白可選欄位會清空舊值；更新前請先備份。單次上限 5,000 筆。</p>${button('檢查並預覽','preview-import','',true)}<div id="import-preview"></div></div>`)+panel('完整備份／還原',`<div class="panel-body"><p class="subtitle">資料實際寫入工具資料夾的 data/state.json。每次儲存另保留上一版 state.previous.json。</p><div class="actions" style="margin:17px 0">${button('下載完整 JSON 備份','backup','',true)}</div><label class="field"><span>選擇 JSON 備份還原（取代全部資料）</span><input id="restore-file" type="file" accept=".json,application/json"></label><div style="margin-top:14px">${button('檢查備份並還原','restore')}</div></div>`)}</div>`;}
+function openDialog(title,body){$('#dialog-body').innerHTML=`<div class="modal-head"><h2>${title}</h2><button class="btn small" data-action="close">關閉</button></div>${body}`;$('#editor').showModal();}
+function closeDialog(){if($('#editor').open)$('#editor').close();}
+function formField(def,row,editing){
+  const [key,label,type,required]=def,v=row[key]??'';let input;const common=`name="${key}" ${required?'required':''}`;
+  if(type==='check')return `<label class="field full" style="display:flex;align-items:center;gap:10px"><input type="checkbox" name="${key}" ${v==='是'?'checked':''} style="width:auto"><span style="margin:0">${label}</span></label>`;
+  if(type==='refProduct'||type==='refCompany'){const refs=type==='refProduct'?state.products:state.companies;input=`<select ${common}><option value="">請選擇</option>${options(refs,v,x=>x.name+' · '+x.id)}</select>`;}
+  else if(type==='draftStatus')input=`<input ${common} readonly value="${esc(v)}"><div class="hint">儲存後使用「記錄已手動寄出」按鈕更新。</div>`;
+  else if(S.choices[type])input=`<select ${common}>${S.choices[type].map(x=>`<option ${x===v?'selected':''}>${x}</option>`).join('')}</select>`;
+  else if(['description','advantage','notes','body','reply','summary','requests','commitments','action_items'].includes(key))input=`<textarea ${common}>${esc(v)}</textarea>`;
+  else input=`<input ${common} type="${type==='date'?'date':type==='email'?'email':type==='url'?'url':type==='year'||type==='amount'?'number':'text'}" ${type==='amount'?'min="0" step="any"':''} ${type==='year'?'min="1900" max="2100"':''} ${type==='id'&&editing?'readonly':''} value="${esc(v)}">`;
+  return `<label class="field ${['description','advantage','notes','body','reply','summary','requests','commitments','action_items','subject'].includes(key)?'full':''}"><span>${label}${required?' *':''}</span>${input}${key==='hs_code'?'<div class="hint">2–12 位數字，前導零會保留；本工具不判定分類正確性。</div>':''}</label>`;
+}
+function editRecord(kind,id='',defaults={}){
+  if(['markets','companies'].includes(kind)&&!state.products.length){toast('請先新增產品。');location.hash='products';return;}
+  if(['drafts','activities'].includes(kind)&&!state.companies.length){toast('請先新增公司。');location.hash='companies';return;}
+  const existing=state[kind].find(x=>x.id===id),row=existing||{id:uid(kind),product_id:state.products[0]?.id,company_id:companyFilter||state.companies[0]?.id,year:new Date().getFullYear(),date:today(),created_at:today(),stage:'待開發',language:'en',status:'草稿',type:'回覆',...defaults};
+  openDialog((existing?'編輯':'新增')+' · '+(sections[kind]?.[1]||kind),`<form id="record-form" data-kind="${kind}" data-existing="${esc(id)}">${kind==='drafts'?'<div class="notice">七項 checklist 由你逐項確認。要記錄已手動寄出，需全部勾選。</div>':''}${kind==='activities'?'<div class="notice">可貼上往來原文並整理摘要。摘錄只使用本機規則，並非 AI 理解或事實查核。跟進日期有填寫時，將同步更新公司的下次跟進日期。</div>':''}<div class="form-grid">${S.fields[kind].map(def=>formField(def,row,!!existing)).join('')}</div>${kind==='activities'?`<div style="margin-top:18px">${button('從原文建立重點摘錄','excerpt')}</div>`:''}<p id="form-error" class="error" role="alert"></p><div class="modal-foot">${button('取消','close')}<button type="submit" class="btn primary">儲存紀錄</button></div></form>`);
+}
+function generateDialog(id=''){
+  if(!state.companies.length){toast('請先新增公司。');location.hash='companies';return;}
+  openDialog('建立開發信草稿',`<form id="generate-form"><div class="form-grid"><label class="field full"><span>目標公司 *</span><select name="company_id" required>${options(state.companies,id||companyFilter||state.companies[0].id,c=>c.name)}</select></label><label class="field"><span>語言</span><select name="language"><option value="en">English</option><option value="zh">繁體中文</option></select></label><label class="field"><span>寄件人姓名 *</span><input name="sender" required></label><label class="field"><span>你的公司名稱 *</span><input name="seller" required></label><label class="field"><span>你的商務 Email *</span><input name="sender_email" type="email" required></label><label class="field full"><span>本次想請對方採取的行動</span><input name="cta" placeholder="例如：安排 15 分鐘通話／確認是否需要產品規格表"></label></div><p class="hint">依已填資料套用範本，不呼叫 AI。國外客戶請先把產品說明與優勢填為英文，或在草稿中翻譯。空白佐證不會被憑空補寫。</p><p class="error" id="form-error"></p><div class="modal-foot">${button('取消','close')}<button class="btn primary" type="submit">產生並編輯草稿</button></div></form>`);
+}
+function buildDraft(values){
+  const c=company(values.company_id),p=product(c.product_id),zh=values.language==='zh',name=c.contact_name||(zh?'採購團隊':'Purchasing Team');
+  const details=[p.description,p.advantage,p.moq&&(zh?'最低訂購量：':'MOQ: ')+p.moq,p.lead_time&&(zh?'交期：':'Lead time: ')+p.lead_time,p.incoterm&&(zh?'貿易條件：':'Trade terms: ')+p.incoterm].filter(Boolean).map(x=>'- '+x).join('\n');
+  return {id:uid('drafts'),company_id:c.id,language:values.language,subject:zh?`${p.name}供應合作｜${values.seller}`:`${p.name} supply opportunity | ${values.seller}`,body:zh?`${name} 您好，\n\n我是 ${values.seller} 的 ${values.sender}，希望與 ${c.name} 探討 ${p.name} 的供應合作。\n\n${details}\n\n${values.cta||'請問您是否願意先了解產品規格與合作條件？'}\n\n謝謝您的時間。\n${values.sender}\n${values.seller}\n${values.sender_email}`:`Dear ${name},\n\nMy name is ${values.sender} from ${values.seller}. I would like to explore a potential ${p.name} supply partnership with ${c.name}.\n\n${details}\n\n${values.cta||'Would you be open to reviewing our product specifications and discussing your sourcing requirements?'}\n\nThank you for your time.\nBest regards,\n${values.sender}\n${values.seller}\n${values.sender_email}`,status:'草稿',created_at:today()};
+}
+const examples={
+  products:[{id:'P001',name:'示例咖啡豆（虛構）',hs_code:'090121',description:'Roasted coffee beans',advantage:'Flexible packaging options',moq:'500 kg',lead_time:'30 days after confirmation',incoterm:'FOB Kaohsiung'}],
+  markets:[{id:'M001',product_id:'P001',country:'示例市場 A',year:2024,import_usd:1000000,source_url:'https://example.com',notes:'虛構示例，非真實統計'},{id:'M002',product_id:'P001',country:'示例市場 A',year:2025,import_usd:1200000,source_url:'https://example.com',notes:'虛構示例，預期成長率 20%'}],
+  companies:[{id:'C001',product_id:'P001',name:'Example Buyer（虛構）',country:'示例市場 A',website:'https://example.com',contact_name:'Sample Buyer',contact_role:'Purchasing Manager',email:'buyer@example.com',linkedin:'',source_url:'https://example.com',stage:'待開發',next_followup:'2026-10-20',notes:'僅作測試，不是真實客戶'}],
+  drafts:[{id:'D001',company_id:'C001',language:'en',subject:'Sample supply inquiry',body:'Dear Sample Buyer,\n\nWould you like to review our roasted coffee specifications?\n\nBest regards,\nSample Seller',status:'草稿',created_at:'2026-10-12'}],
+  activities:[{id:'A001',company_id:'C001',date:'2026-10-12',type:'回覆',subject:'Sample specification request',summary:'客戶希望先取得規格與報價。此為虛構示例。',reply:'Please send the specifications and a quotation for 500 kg.',body:'We will prepare the documents.',requests:'規格、500 kg 報價',commitments:'準備規格與報價',action_items:'確認包裝與交貨地點',next_followup:'2026-10-20'}]
+};
+function csv(kind,rows){const keys=S.fields[kind].map(f=>f[0]);return '\uFEFF'+Papa.unparse({fields:keys,data:rows.map(r=>keys.map(k=>{const v=r[k]??(k.startsWith('check_')?'否':'');return typeof v==='string'&&/^[=+\-@\t\r]/.test(v)?"'"+v:v;}))},{newline:'\r\n'});}
+function download(name,text,type){const blob=new Blob([text],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+function parseCSV(text,kind){
+  const parsed=Papa.parse(text.replace(/^\uFEFF/,''),{header:true,skipEmptyLines:'greedy',transformHeader:h=>h.trim()});
+  if(parsed.errors.length)throw Error('CSV 格式錯誤：'+parsed.errors.map(e=>e.message).join('；'));
+  const required=S.fields[kind].map(f=>f[0]),headers=parsed.meta.fields||[];
+  if(headers.length!==required.length||required.some(k=>!headers.includes(k)))throw Error('欄名與制式格式不符，請使用本工具提供的 '+kind+' CSV 範本。');
+  if(!parsed.data.length)throw Error('CSV 沒有資料列。');if(parsed.data.length>5000)throw Error('單次最多匯入 5,000 筆。');
+  const ids=new Set();for(const row of parsed.data){if(ids.has(row.id))throw Error('CSV 內有重複 ID：'+row.id);ids.add(row.id);}return parsed.data;
+}
+function applyImport(kind,rows,mode){const next=clone(state);for(const row of rows){const index=next[kind].findIndex(x=>x.id===row.id);if(index>=0){if(mode==='append')throw Error('ID 已存在：'+row.id+'。請更換 ID 或選擇新增／更新。');next[kind][index]=row;}else next[kind].push(row);}return S.validate(next);}
+async function previewImport(){
+  const kind=$('#import-kind').value,mode=$('#import-mode').value,file=$('#csv-file').files[0];pending=null;
+  try{if(!file)throw Error('請選擇 CSV 檔案。');if(file.size>10*1024*1024)throw Error('CSV 超過 10MB。');const rows=parseCSV(await file.text(),kind),next=applyImport(kind,rows,mode);const updated=rows.filter(r=>state[kind].some(x=>x.id===r.id)).length;pending={kind,mode,rows,revision:state.revision};$('#import-preview').innerHTML=`<div class="notice" style="margin-top:20px">檢查通過：新增 ${rows.length-updated} 筆／更新 ${updated} 筆。預覽前 8 筆；確認後才會寫入。</div><div class="preview">${table(S.fields[kind].slice(0,5).map(f=>f[1]),next[kind].filter(r=>rows.some(x=>x.id===r.id)).slice(0,8).map(r=>'<tr>'+S.fields[kind].slice(0,5).map(f=>'<td>'+esc(r[f[0]])+'</td>').join('')+'</tr>'))}</div><div style="margin-top:15px">${button('確認匯入 '+rows.length+' 筆','confirm-import','',true)}</div>`;}catch(e){$('#import-preview').innerHTML=`<p class="error">${esc(e.message)}</p>`;}
+}
+async function excerpt(){const form=$('#record-form'),text=[form.elements.reply.value,form.elements.body.value].filter(Boolean).join('\n');if(!text.trim()){toast('請先貼上對方或我方信件原文。');return;}if(form.elements.summary.value.trim()&&!await ask('以原文摘錄取代目前摘要？需求、承諾與待辦不會變更。'))return;const lines=text.split(/\n|(?<=[。！？.!?])\s+/).map(x=>x.trim()).filter(x=>x&&!/^(Dear\b|Hi\b|Hello\b|Best regards|Kind regards|Regards|Sincerely|您好|敬祝)/i.test(x));form.elements.summary.value='原文重點摘錄（待確認）：\n'+lines.slice(0,5).map(x=>'• '+x.slice(0,300)).join('\n');toast('已建立摘錄；請確認需求、承諾與下一步。');}
+document.addEventListener('submit',async e=>{
+  const formId=e.target.getAttribute('id');if(!['record-form','generate-form'].includes(formId))return;e.preventDefault();const form=e.target,submit=form.querySelector('[type=submit]');submit.disabled=true;
+  try{
+    const values=Object.fromEntries(new FormData(form));
+    if(formId==='generate-form'){const draft=buildDraft(values);closeDialog();editRecord('drafts','',draft);return;}
+    const kind=form.dataset.kind,existing=form.dataset.existing;for(const f of S.fields[kind])if(f[2]==='check')values[f[0]]=form.elements[f[0]].checked?'是':'否';
+    if(kind==='drafts'&&values.status==='已手動寄出'&&checks(values).done<7)throw Error('記錄已手動寄出前，請完成全部七項 Checklist。');
+    const next=clone(state),index=next[kind].findIndex(x=>x.id===existing);
+    if(index>=0)next[kind][index]=values;else next[kind].push(values);
+    if(kind==='activities'){const c=next.companies.find(x=>x.id===values.company_id);if(c&&values.next_followup)c.next_followup=values.next_followup;if(c&&values.type==='回覆'&&['待開發','已聯繫'].includes(c.stage))c.stage='已回覆';}
+    await commit(next,'紀錄已儲存');closeDialog();
+  }catch(err){$('#form-error').textContent=err.message;}finally{submit.disabled=false;}
+});
+document.addEventListener('click',async e=>{
+  const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id,kind=el.dataset.kind;if(busy){toast('正在儲存，請稍候。');return;}
+  try{
+    if(a==='close')return closeDialog();
+    if(a==='go-imports'){location.hash='imports';return;}
+    if(a==='add-product')return editRecord('products');if(a==='add-market')return editRecord('markets','',{product_id:marketProduct||state.products[0]?.id});if(a==='add-company')return editRecord('companies');if(a==='add-activity')return editRecord('activities');
+    if(a==='edit')return editRecord(kind,id);if(a==='edit-company')return editRecord('companies',id);if(a==='generate')return generateDialog(id);
+    if(a==='company-history'){companyFilter=id;location.hash='activities';return;}if(a==='excerpt')return excerpt();
+    if(a==='delete'){
+      if(kind==='products'&&(state.markets.some(x=>x.product_id===id)||state.companies.some(x=>x.product_id===id)))throw Error('此產品仍有市場或公司資料，請先刪除或重新連結相關紀錄。');
+      if(kind==='companies'&&(state.drafts.some(x=>x.company_id===id)||state.activities.some(x=>x.company_id===id)))throw Error('此公司仍有信件或往來紀錄，請先處理相關紀錄。');
+      if(!await ask('確定刪除 '+id+'？此操作可透過備份還原。'))return;const next=clone(state);next[kind]=next[kind].filter(x=>x.id!==id);await commit(next,'已刪除');return;
+    }
+    if(a==='copy-draft'){const d=state.drafts.find(x=>x.id===id);await navigator.clipboard.writeText('Subject: '+d.subject+'\n\n'+d.body);toast('主旨與內文已複製');return;}
+    if(a==='mark-sent'){
+      const d=state.drafts.find(x=>x.id===id);if(checks(d).done<7)throw Error('請先編輯草稿，完成七項 Checklist。');if(!await ask('確認你已在郵件軟體手動寄出這封信？本工具只記錄，不會寄信。'))return;
+      const next=clone(state);next.drafts.find(x=>x.id===id).status='已手動寄出';const c=next.companies.find(x=>x.id===d.company_id);if(c.stage==='待開發')c.stage='已聯繫';next.activities.push({id:uid('activities'),company_id:c.id,date:today(),type:'開發信',subject:d.subject,summary:'已手動寄出開發信：'+d.subject,body:d.body,reply:'',requests:'',commitments:'',action_items:'安排下次跟進日期',next_followup:''});await commit(next,'已記錄寄出，並保留信件原文');return;
+    }
+    if(['template','example','export-csv'].includes(a)){const rows=a==='template'?[]:a==='example'?examples[id]:state[id];download(id+'_'+(a==='template'?'template':a==='example'?'example':today())+'.csv',csv(id,rows),'text/csv;charset=utf-8');return;}
+    if(a==='preview-import')return await previewImport();
+    if(a==='confirm-import'){if(!pending)throw Error('請先檢查並預覽。');if(pending.revision!==state.revision)throw Error('資料已變更，請重新預覽。');await commit(applyImport(pending.kind,pending.rows,pending.mode),'CSV 已匯入');pending=null;return;}
+    if(a==='backup'){download('TradeDesk_backup_'+today()+'.json',JSON.stringify(state,null,2),'application/json');return;}
+    if(a==='restore'){const file=$('#restore-file').files[0];if(!file)throw Error('請選擇 JSON 備份。');if(file.size>10*1024*1024)throw Error('備份超過 10MB。');const restored=S.validate(JSON.parse(await file.text()));const summary=Object.keys(S.fields).map(k=>`${sections[k]?.[1]} ${restored[k].length} 筆`).join('\n');if(!await ask('備份檢查通過：\n'+summary+'\n\n確定取代全部資料？建議先下載目前的 JSON 備份。'))return;restored.revision=state.revision;await commit(restored,'備份已還原');return;}
+  }catch(err){toast(err.message);}
+});
+document.addEventListener('change',e=>{
+  const id=e.target.id;
+  if(id==='market-product'){marketProduct=e.target.value;marketYear='';baseYear='';render();}
+  if(id==='market-year'){marketYear=e.target.value;baseYear=String(+marketYear-1);render();}
+  if(id==='base-year'){if(!/^\d{4}$/.test(e.target.value)||+e.target.value<1900||+e.target.value>=+marketYear){toast('基期需為 1900 年以上，且早於比較年度。');e.target.value=baseYear;return;}baseYear=e.target.value;render();}
+  if(id==='stage-filter'){stageFilter=e.target.value;render();}
+  if(['draft-company','activity-company'].includes(id)){companyFilter=e.target.value;render();}
+  if(['import-kind','import-mode','csv-file'].includes(id)){pending=null;$('#import-preview').innerHTML='';}
+});
+document.addEventListener('input',e=>{if(e.target.id==='company-search'){const pos=e.target.selectionStart;search=e.target.value;render();$('#company-search').focus();$('#company-search').setSelectionRange(pos,pos);}});
+window.addEventListener('hashchange',()=>{closeDialog();route=Object.hasOwn(sections,location.hash.slice(1))?location.hash.slice(1):'overview';pending=null;render();});
+async function init(){try{const r=await fetch('/api/state');if(!r.ok)throw Error('無法讀取本機資料');state=S.validate(await r.json());route=Object.hasOwn(sections,location.hash.slice(1))?location.hash.slice(1):'overview';render();}catch(e){$('#app').innerHTML=heading('無法讀取資料',esc(e.message))+'<div class="notice warn">請確認本機服務仍在執行，再重新整理。請勿直接以 file:// 開啟此頁面。</div>';$('#save-status').textContent='連線失敗';}}
+init();
