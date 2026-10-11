@@ -1,0 +1,13 @@
+{
+  "name": "tradedesk-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first trade development CRM with manual data entry, CSV, outreach checklists and correspondence summaries",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/integration.cjs",
+    "templates": "node generate-templates.cjs"
+  }
+}

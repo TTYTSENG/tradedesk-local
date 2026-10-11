@@ -1,2 +1,87 @@
-# tradedesk-local
-MIT local trade-development CRM: HS codes, manual market trends, CSV imports, outreach checklists, correspondence summaries and follow-ups.
+# TradeDesk｜本機外貿開發工作台
+
+使用 Chrome 操作，資料保存在本機。程式碼採 MIT 授權，不需要帳號、AI API 或網路搜尋服務。
+
+## 在這台電腦啟動
+
+1. 雙擊 `start.cmd`。啟動程式會使用本機既有的 Node.js，並開啟 Chrome。
+2. 瀏覽器網址為 **http://127.0.0.1:8765**。不要直接開啟 `public/index.html`。
+3. 使用完畢可雙擊 `stop.cmd` 關閉本機服務。關閉 Chrome 不會停止服務。
+
+若移到別台電腦，需有 Node.js 20 或更新版本；可安裝 Node.js LTS，或把自己的 Node.js 執行檔放在 `runtime/node.exe`。無 npm 套件安裝步驟。Windows 啟動檔為 ASCII 編碼，可在含中文路徑的資料夾使用。
+
+## 功能
+
+macOS／Linux 或命令列使用者：在專案資料夾執行 `node server.js`，再用 Chrome 開啟 http://127.0.0.1:8765。以 Ctrl+C 停止服務。也可使用 `npm start`；不需要執行 `npm install`。
+
+- 產品：HS Code（保留前導零）、產品說明、主要優勢、MOQ、交期、貿易條件。
+- 市場：手動填寫產品／國家／年度進口額 USD；比較不同市場及基期成長率。缺少基期或基期為零時不顯示推估百分比。
+- 公司：每家公司一位主要聯絡人，官網、公開商務 Email、LinkedIn、來源網址、商機階段、跟進日期。
+- 開發信：輸入寄件人資訊，使用英文／中文範本產生草稿；可編輯、複製，**不自動寄信**。
+- Checklist：對象與職務、產品適配、具體利益、規格佐證、行動邀請、寄件聯絡資訊、語言與附件。七項完成後才可「記錄已手動寄出」。該操作將建立一筆保留原文的往來紀錄。
+- 往來紀錄：對方／我方信件原文、主旨、內容摘要、客戶需求、我方承諾、下一步與建議跟進日期。
+- 原文摘錄：以本機規則擷取前五個非問候句段落，作為摘要起點；不使用 AI，不判定重要性或事實，需自行確認。需求與承諾欄仍由使用者填寫。
+- 到期待辦：列出今日或已逾期的公司；已成交及暫停者不列入。
+- CSV：提供空白範本、虛構示例、預覽匯入、依 ID 更新與資料匯出。
+- JSON：完整資料備份與還原。
+
+## 建議使用順序
+
+建立產品 → 輸入各國年度進口額 → 整理公司及公開聯絡資訊 → 管理商機 → 產生／修改開發信 → 完成 Checklist → 手動寄出並記錄 → 整理回覆摘要 → 設定下次跟進日期。
+
+## Excel／CSV 使用說明
+
+`templates` 資料夾包含以下 UTF-8 BOM、CRLF CSV（可在介面重新下載）：
+
+| 範本 | 用途 | 關聯 |
+|---|---|---|
+| products_template.csv | 產品 | `id` 是產品ID |
+| markets_template.csv | 年度市場數據 | `product_id` 必須已存在 |
+| companies_template.csv | 公司及主要聯絡人 | `product_id` 必須已存在 |
+| drafts_template.csv | 信件及 Checklist | `company_id` 必須已存在 |
+| activities_template.csv | 往來原文及摘要 | `company_id` 必須已存在 |
+
+1. Excel 使用「資料 → 從文字/CSV」開啟。把 **id、product_id、company_id、hs_code** 設為文字格式，特別是有前導零的 HS Code。
+2. 保留英文欄名，欄位順序可變，但不可增加／刪除欄位。中文欄位說明在 `templates/欄位說明.md`。
+3. ID 只能使用英文、數字、底線、短橫線。建議產品 P001、公司 C001、市場 M001 等。
+4. 年度為四位數，進口額為非負數字，例如 `1234567.89`，**不要填千位逗號、貨幣符號或「萬」**。本版只比較 USD，資料換匯請手動完成。
+5. 日期填寫 `YYYY-MM-DD`。網址以 `https://` 或 `http://` 開頭。
+6. 業務階段限定：待開發、已聯繫、已回覆、洽談中、已成交、暫停。信件語言為 en／zh；狀態為草稿／已手動寄出；Checklist 欄填是／否（空白視為否）。
+7. 另存為 **CSV UTF-8（逗號分隔）**。在工具選擇資料種類，檢查預覽後確認匯入。一次最多 5,000 筆，不會略過壞資料；整批通過才寫入。
+8. 同 ID 可選「只新增」或「依 ID 新增／更新」。更新是整筆取代，空白欄位會清空舊值，請先備份。
+
+市場紀錄不可有重複的產品／國家／年度組合。國家使用一致名稱，避免「美國／USA／United States」被視為不同市場。
+
+**CSV 與完整備份的差別**：匯入往來 CSV 只匯入歷史紀錄，不同步變更公司階段／跟進日期；公司現況請使用 companies CSV 更新。介面新增／編輯往來紀錄時，有填跟進日期才會同步到公司；回覆會把待開發／已聯繫公司更新為已回覆。刪除歷史紀錄不回溯公司的現況。匯入「已手動寄出」草稿須完成七項 Checklist，但不另外建立往來紀錄；已有歷史請另匯入 activities CSV。
+
+CSV 匯出對以 `= + - @`、Tab 等開頭的文字加單引號，避免 Excel 當作公式。重新匯入時單引號會留在文字內；若需完整無損搬移，請使用 JSON 備份。
+
+所有示例均為虛構，預設資料庫為空白。示例日期固定，請依實際使用日期調整。
+
+## 保存與備份
+
+- 主資料：`data/state.json`。資料在本機服務儲存，與 Chrome 快取無關。
+- 前一版：`data/state.previous.json`（每次存檔更新，僅保留前一版）。
+- 完整備份：介面「CSV 匯入與備份 → 下載完整 JSON 備份」，儲存到你選的資料夾。可在另一台 TradeDesk 還原。
+- 還原會取代全部資料，先檢查關聯與格式，再要求確認。多個 Chrome 分頁同時編輯時，舊版本儲存會被拒絕，需重新整理。
+- 不可直接從介面刪除仍有相關資料的產品或公司，請先刪除／重新連結子紀錄。
+- 本版是單機單使用者工具，僅監聽 `127.0.0.1`；不提供網路多人登入或雲端同步。
+
+## 故障排除
+
+- 找不到 Node.js：安裝 Node.js LTS，或使用現有 Codex 捆綁執行環境。
+- 無法啟動：查看 `data/server-error.log`，確認 8765 埠未被其他程式使用。
+- 若主資料損壞而無法啟動：停止服務，先另存損壞檔，把 `state.previous.json` 複製成 `state.json` 再啟動。
+- HS Code 變少一位：Excel 已去除前導零；重新用「從文字/CSV」匯入，將欄位設為文字。
+
+## 原始碼與授權
+
+`server.js`：本機服務與資料保存；`public/schema.js`：共用驗證；`public/app.js`：介面與工作流；`public/style.css`：樣式。
+
+MIT 專案搜尋與實際依賴見 `THIRD-PARTY-NOTICES.md`。自寫輕量版避免安裝完整 CRM 的 PHP／Supabase 堆疊；實際沿用 MIT 的 PapaParse 處理 CSV。
+
+## 開發與驗證
+
+需要 Node.js 20+，無外部服務或 npm 依賴。執行 `npm test` 或 `node tests/integration.cjs` 驗證資料保存、CSV 往返、欄位與關聯驗證、版本衝突、來源限制、備份及重新啟動。測試使用暫存資料夾，不影響正式資料。
+
+修改欄位或示例後，執行 `node generate-templates.cjs` 更新 CSV 範本。提交程式碼前請確認 `data/`、個人信件與聯絡資料不在版本控制中；`.gitignore` 已排除本機資料與執行環境。
