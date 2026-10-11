@@ -1,0 +1,2 @@
+﻿id,company_id,date,type,subject,summary,reply,body,requests,commitments,action_items,next_followup
+A001,C001,2026-10-12,回覆,Sample specification request,客戶希望先取得規格與報價。此為虛構示例。,Please send the specifications and a quotation for 500 kg.,We will prepare the documents.,規格、500 kg 報價,準備規格與報價,確認包裝與交貨地點,2026-10-20

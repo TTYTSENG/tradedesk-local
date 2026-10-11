@@ -1,0 +1,2 @@
+﻿id,product_id,name,country,website,contact_name,contact_role,email,linkedin,source_url,stage,next_followup,notes
+C001,P001,Example Buyer（虛構）,示例市場 A,https://example.com,Sample Buyer,Purchasing Manager,buyer@example.com,,https://example.com,待開發,2026-10-20,僅作測試，不是真實客戶
