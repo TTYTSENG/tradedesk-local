@@ -1,0 +1,2 @@
+﻿id,name,hs_code,description,advantage,moq,lead_time,incoterm,sku,model,specification,material,unit,net_weight_kg,packaging_type,packaging_notes,units_per_carton,carton_length_cm,carton_width_cm,carton_height_cm,carton_count,gross_weight_per_carton_kg
+P001,示例咖啡豆（虛構）,090121,Roasted coffee beans,Flexible packaging options,500 kg,30 days after confirmation,FOB Kaohsiung,COFFEE-001,V1,1 kg / bag,Coffee beans,袋,1,袋裝／瓦楞外箱,每袋 1 kg；每箱 10 袋,10,40,30,25,20,11

@@ -1,0 +1,7 @@
+﻿id,company_id,language,subject,body,status,created_at,check_audience,check_product,check_benefit,check_proof,check_cta,check_contact,check_review
+D001,C001,en,Sample supply inquiry,"Dear Sample Buyer,
+
+Would you like to review our roasted coffee specifications?
+
+Best regards,
+Sample Seller",草稿,2026-10-12,否,否,否,否,否,否,否

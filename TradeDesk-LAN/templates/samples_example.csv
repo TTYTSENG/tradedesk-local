@@ -1,0 +1,2 @@
+﻿id,company_id,product_id,request_date,requirements,requested_qty,unit,specification,packaging,required_date,provided_info,provided_qty,provided_date,carrier,tracking_no,status,next_followup,notes
+S001,C001,P001,2026-10-12,虛構示例：確認風味與包裝,2,袋,1 kg / bag,獨立封袋並標示批號,2026-10-25,,,,,,需求已記錄,,僅记录需求與提供資訊
