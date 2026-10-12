@@ -1,0 +1,2 @@
+﻿id,company_id,product_id,name,part_number,drawing_revision,submission_reason,submission_level,customer_requirements,owner,start_date,target_date,stage,submitted_date,approval_date,approved_by,approval_reference,interim_limits,next_action,notes
+N001,C001,P001,虛構新產品開發示例,CUSTOM-001,A,初次提交,3,示例，不代表客戶實際核准要求；逐項確認適用性。,Sample Engineer,2026-10-12,2026-11-30,需求確認,,,,,,與客戶確認圖面、提交等級及文件要求,

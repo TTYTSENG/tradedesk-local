@@ -1,2 +1,2 @@
-﻿id,name,hs_code,description,advantage,moq,lead_time,incoterm
+﻿id,name,hs_code,description,advantage,moq,lead_time,incoterm,sku,model,specification,material,unit,net_weight_kg,packaging_type,packaging_notes,units_per_carton,carton_length_cm,carton_width_cm,carton_height_cm,carton_count,gross_weight_per_carton_kg
 

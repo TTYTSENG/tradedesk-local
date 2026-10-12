@@ -1,0 +1,4 @@
+﻿id,product_id,line_no,component_code,component_name,specification,material,quantity,unit,waste_pct,unit_cost,currency,supplier,notes
+B001,P001,1,MAT-001,示例烘焙咖啡豆,每袋 1 kg,咖啡豆,1,kg,2,8,USD,Example Supplier,虛構單價
+B002,P001,2,PKG-001,示例包裝袋,1 kg 袋,複合膜,1,個,0,0.3,USD,Example Packaging,虛構單價
+B003,P001,3,PKG-002,示例外箱,40 × 30 × 25 cm,瓦楞紙,0.1,箱,0,2,USD,Example Packaging,每箱 10 袋，單袋分攤 0.1 箱
