@@ -1,11 +1,12 @@
 // TradeDesk local server. Node.js built-in modules only; no package install needed.
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const schema=require('./public/schema.js');
+const schema=require('./public/workflow-schema.js');
 const base=__dirname,publicDir=path.join(base,'public'),dataDir=process.env.TRADEDESK_DATA_DIR||path.join(base,'data');
 const port=Number(process.env.TRADEDESK_PORT||8765),token=crypto.randomBytes(32).toString('hex');
 fs.mkdirSync(dataDir,{recursive:true});
 const dbPath=path.join(dataDir,'state.json');
 let state=fs.existsSync(dbPath)?schema.validate(JSON.parse(fs.readFileSync(dbPath,'utf8'))):schema.empty();
+const reports=require('./reports.js')(dataDir,()=>state,token,port);
 function persist(next){
   const temp=path.join(dataDir,'state.tmp');
   fs.writeFileSync(temp,JSON.stringify(next,null,2),'utf8');
@@ -20,6 +21,7 @@ const server=http.createServer(async(req,res)=>{
   // Localhost only; do not accept DNS-rebinding hostnames or cross-origin writes.
   if(!['localhost:'+port,'127.0.0.1:'+port].includes(req.headers.host))return send(res,403,{error:'Local access only'});
   const url=new URL(req.url,'http://127.0.0.1:'+port);
+  if(await reports.handle(req,res,url))return;
   if(req.method==='GET'&&url.pathname==='/api/health')return send(res,200,{app:'TradeDesk',version:1});
   if(req.method==='GET'&&url.pathname==='/api/state')return send(res,200,state);
   if(req.method==='POST'&&url.pathname==='/api/shutdown'){
@@ -33,7 +35,7 @@ const server=http.createServer(async(req,res)=>{
       let length=0,chunks=[];for await(const chunk of req){length+=chunk.length;if(length>10*1024*1024)return send(res,413,{error:'資料超過 10MB。'});chunks.push(chunk);}
       const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if(body.revision!==state.revision)return send(res,409,{error:'資料已在其他視窗更新，請重新整理後再操作。'});
-      const next=schema.validate(body);next.revision=state.revision+1;persist(next);return send(res,200,next);
+      const next=schema.validate(body);reports.guardState(next);next.revision=state.revision+1;persist(next);return send(res,200,next);
     }catch(e){return send(res,400,{error:e.message});}
   }
   if(req.method!=='GET')return send(res,405,{error:'Unsupported method'});
