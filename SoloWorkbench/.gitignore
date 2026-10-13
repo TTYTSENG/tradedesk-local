@@ -1,0 +1,5 @@
+data/
+runtime/
+tests/browser-data/
+*.backup.json
+*.log

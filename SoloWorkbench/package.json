@@ -1,0 +1,1 @@
+{"name":"solo-workbench","version":"0.2.1","private":true,"license":"MIT","scripts":{"start":"node server.js","test":"node tests/integration.cjs"},"engines":{"node":">=20"}}
